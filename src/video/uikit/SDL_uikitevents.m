@@ -39,6 +39,7 @@
 #endif
 
 static BOOL UIKit_EventPumpEnabled = YES;
+static BOOL UIKit_EventPumpActive = NO;
 
 void
 SDL_iPhoneSetEventPump(SDL_bool enabled)
@@ -47,35 +48,77 @@ SDL_iPhoneSetEventPump(SDL_bool enabled)
 }
 
 void
-UIKit_PumpEvents(_THIS)
+UIKit_StopEvents(_THIS)
 {
-    if (!UIKit_EventPumpEnabled) {
-        return;
+    dispatch_async(dispatch_get_main_queue(), ^() {
+        if (UIKit_EventPumpActive) {
+            UIKit_EventPumpActive = NO;
+            CFRunLoopStop(CFRunLoopGetCurrent());
+        }
+    });
+}
+
+int
+UIKit_PumpEventsUntilDate(_THIS, NSDate *expiration, bool accumulate)
+{
+    if (UIKit_EventPumpEnabled) {
+        UIKit_EventPumpActive = YES;
+        if (accumulate)
+        {
+            UIKit_StopEvents(_this);
+        }
+        while ([[NSRunLoop currentRunLoop] runMode:NSDefaultRunLoopMode beforeDate:expiration])
+        {
+            if (!UIKit_EventPumpActive)
+            {
+                break;
+            }
+            
+            if (!accumulate)
+            {
+                NSComparisonResult c = [[NSDate now] compare:expiration];
+                if (c == NSOrderedDescending || c == NSOrderedSame)
+                {
+                    break;
+                }
+            }
+        }
+        /* See the comment in the function definition. */
+#if SDL_VIDEO_OPENGL_ES || SDL_VIDEO_OPENGL_ES2
+        UIKit_GL_RestoreCurrentContext();
+#endif
+        if (!UIKit_EventPumpActive) {
+            return 1;
+        }
+        UIKit_EventPumpActive = NO;
     }
 
-    /* Let the run loop run for a short amount of time: long enough for
-       touch events to get processed (which is important to get certain
-       elements of Game Center's GKLeaderboardViewController to respond
-       to touch input), but not long enough to introduce a significant
-       delay in the rest of the app.
-    */
-    const CFTimeInterval seconds = 0.000002;
+    return 0;
+}
 
-    /* Pump most event types. */
-    SInt32 result;
-    do {
-        result = CFRunLoopRunInMode(kCFRunLoopDefaultMode, seconds, TRUE);
-    } while (result == kCFRunLoopRunHandledSource);
+int
+UIKit_WaitEventTimeout(_THIS, int timeout)
+{
+    if (timeout > 0) {
+        NSDate *limitDate = [NSDate dateWithTimeIntervalSinceNow: (double) timeout / 1000.0];
+        return UIKit_PumpEventsUntilDate(_this, limitDate, false);
+    } else if (timeout == 0) {
+        return UIKit_PumpEventsUntilDate(_this, [NSDate distantPast], false);
+    } else {
+        return UIKit_PumpEventsUntilDate(_this, [NSDate distantFuture], false);
+    }
+}
 
-    /* Make sure UIScrollView objects scroll properly. */
-    do {
-        result = CFRunLoopRunInMode((CFStringRef)UITrackingRunLoopMode, seconds, TRUE);
-    } while(result == kCFRunLoopRunHandledSource);
+void
+UIKit_PumpEvents(_THIS)
+{
+    UIKit_PumpEventsUntilDate(_this, [NSDate distantPast], true);
+}
 
-    /* See the comment in the function definition. */
-#if SDL_VIDEO_OPENGL_ES || SDL_VIDEO_OPENGL_ES2
-    UIKit_GL_RestoreCurrentContext();
-#endif
+void
+UIKit_SendWakeupEvent(_THIS, SDL_Window *window)
+{
+    UIKit_StopEvents(_this);
 }
 
 #ifdef ENABLE_GCKEYBOARD

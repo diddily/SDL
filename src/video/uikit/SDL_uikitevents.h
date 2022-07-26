@@ -24,6 +24,8 @@
 #include "../SDL_sysvideo.h"
 
 extern void UIKit_PumpEvents(_THIS);
+extern int  UIKit_WaitEventTimeout(_THIS, int timeout);
+extern void UIKit_SendWakeupEvent(_THIS, SDL_Window *window);
 
 extern void SDL_InitGCKeyboard(void);
 extern SDL_bool SDL_HasGCKeyboard(void);
